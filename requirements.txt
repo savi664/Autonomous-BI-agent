@@ -2,3 +2,5 @@ lanchain
 langgraph
 fastapi
 uvicorn
+qdrant-client
+langchain_groq
