@@ -2,24 +2,28 @@ import subprocess
 import sys
 import asyncio
 
-async def execute_code(code:str,timeout=10) -> dict:
+async def execute_code(code: str, timeout=10) -> dict:
     """
-    Executes the code and return the output or and error if it occurs
+    Executes the code in a subprocess and returns the output or error.
+    Uses subprocess.run in a thread pool to avoid Windows event loop
+    compatibility issues (SelectorEventLoop vs ProactorEventLoop)
+    that cause silent failures inside uvicorn.
+    """
+    def _run():
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", code],
+                capture_output=True,
+                text=True,
+                timeout=timeout
+            )
+            if result.returncode == 0:
+                return {"status": "success", "stdout": result.stdout.strip(), "stderr": ""}
+            else:
+                return {"status": "error", "stdout": result.stdout.strip(), "stderr": result.stderr.strip()}
+        except subprocess.TimeoutExpired:
+            return {"status": "error", "stdout": "", "stderr": "Execution timed out."}
+        except Exception as e:
+            return {"status": "error", "stdout": "", "stderr": f"Subprocess launch failed: {type(e).__name__}: {e}"}
 
-    """
-    try:
-        result = await asyncio.create_subprocess_exec(
-             sys.executable, "-c", code,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout,stderr = await asyncio.wait_for(result.communicate(), timeout=timeout)
-        
-        if result.returncode == 0:
-            return {"status": "success", "stdout": stdout.decode('utf-8').strip(), "stderr": ""}
-        else:
-            return {"status": "error", "stdout": stdout.decode('utf-8').strip(), "stderr": stderr.decode('utf-8').strip()}
-    except asyncio.TimeoutError:
-        result.kill()
-        await result.communicate()
-        return {"status": "error", "stdout": "", "stderr": "Execution timed out."}
+    return await asyncio.to_thread(_run)

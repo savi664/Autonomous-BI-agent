@@ -266,36 +266,58 @@
     // =====================
     // Report Renderer
     // =====================
-    function renderReport(sections) {
-        elements.reportContainer.innerHTML = '';
+    function renderReport(data) {
+    elements.reportContainer.innerHTML = '';
 
-        for (const section of sections) {
-            const card = document.createElement('div');
-            card.className = 'report-card';
+    // Executive summary card at the top
+    const summaryCard = document.createElement('div');
+    summaryCard.className = 'report-card';
+    summaryCard.innerHTML = `
+        <div class="report-card-header">
+            <span class="report-card-number">✦</span>
+            <h3 class="report-card-title">Executive Summary</h3>
+        </div>
+        <div class="report-card-body">
+            ${formatBodyToHtml(data.report)}
+        </div>
+    `;
+    elements.reportContainer.appendChild(summaryCard);
 
-            const header = document.createElement('div');
-            header.className = 'report-card-header';
-
-            const numberBadge = document.createElement('span');
-            numberBadge.className = 'report-card-number';
-            numberBadge.textContent = section.number || '•';
-
-            const title = document.createElement('h3');
-            title.className = 'report-card-title';
-            title.textContent = section.title;
-
-            header.appendChild(numberBadge);
-            header.appendChild(title);
-
-            const body = document.createElement('div');
-            body.className = 'report-card-body';
-            body.innerHTML = formatBodyToHtml(section.body);
-
-            card.appendChild(header);
-            card.appendChild(body);
-            elements.reportContainer.appendChild(card);
-        }
-    }
+    // One card per hypothesis
+    data.hypotheses.forEach((h, i) => {
+        const card = document.createElement('div');
+        card.className = 'report-card hypothesis-card';
+        const codeId = 'code-block-' + i;
+        card.innerHTML = `
+            <div class="report-card-header">
+                <span class="report-card-number">${i + 1}</span>
+                <h3 class="report-card-title">${h.question}</h3>
+            </div>
+            <div class="report-card-body">
+                <div class="hypothesis-status ${h.status}">
+                    <span class="status-dot"></span>
+                    <span class="status-label">${h.status}</span>
+                </div>
+                <div class="hypothesis-result">
+                    <p>${h.result ? h.result.replace(/\n/g, '<br>') : 'No result recorded.'}</p>
+                </div>
+                <pre id="${codeId}" class="code-block hidden"><code>${h.code ? h.code.replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''}</code></pre>
+            </div>
+        `;
+        const btn = document.createElement('button');
+        btn.className = 'view-code-btn';
+        btn.textContent = 'View Code';
+        btn.addEventListener('click', function() {
+            const block = document.getElementById(codeId);
+            block.classList.toggle('hidden');
+            this.textContent = block.classList.contains('hidden') ? 'View Code' : 'Hide Code';
+        });
+        const cardBody = card.querySelector('.report-card-body');
+        const preBlock = card.querySelector('.code-block');
+        cardBody.insertBefore(btn, preBlock);
+        elements.reportContainer.appendChild(card);
+    });
+}
 
     // =====================
     // API Call
@@ -311,9 +333,9 @@
 
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+            const timeoutId = setTimeout(() => controller.abort(), 300000); 
 
-            const response = await fetch('http://127.0.0.1:8000/analyze/', {
+            const response = await fetch('/analyze/', {
                 method: 'POST',
                 body: formData,
                 signal: controller.signal
@@ -339,8 +361,7 @@
                 throw new Error('The server response was not in the expected format.');
             }
 
-            const sections = parseReport(data.report);
-            renderReport(sections);
+            renderReport(data);
             switchState(STATES.REPORT);
 
         } catch (error) {

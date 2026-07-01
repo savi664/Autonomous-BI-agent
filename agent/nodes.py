@@ -1,14 +1,19 @@
 import pandas as pd
 from agent.state import AgentState
-from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 import os 
 import json
 from dotenv import load_dotenv
 from core.retry import execute_with_retry
 
 load_dotenv()   
-os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
-llm = ChatGroq(model="llama-3.3-70b-versatile")  
+os.environ["GITHUB_TOKEN"] = os.getenv("GITHUB_TOKEN")
+
+llm = ChatOpenAI(
+    model="openai/gpt-5",
+    api_key=os.getenv("GITHUB_TOKEN"),
+    base_url="https://models.github.ai/inference",
+)
 
 def profile_dataset(state: AgentState) -> dict:
     """
@@ -46,7 +51,7 @@ def profile_dataset(state: AgentState) -> dict:
         return {"error": str(e)}
 
 
-def generate_hypotheses(state: AgentState) -> list:
+def generate_hypotheses(state: AgentState) -> dict:
     profile = state["dataset_profile"]
 
     prompt = f"""You are a senior data analyst tasked with investigating a business dataset.
@@ -68,8 +73,20 @@ Each object must have exactly these keys: id, question, status, result, code
 Example format:
 [{{"id": "h1", "question": "Is there a correlation between revenue and customers?", "status": "open", "result": "", "code": ""}}]"""
     response = llm.invoke(prompt)
-    hypotheses = json.loads(response.content)
-    return{"hypotheses": hypotheses}
+    content = response.content.strip()
+
+    if "```" in content:
+        lines = content.split("\n")
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        content = "\n".join(lines)
+
+    try:
+        hypotheses = json.loads(content.strip(), strict=False)
+    except json.JSONDecodeError as e:
+        print(f"Failed to parse hypotheses JSON: {e}")
+        print(f"Raw content: {content}")
+        raise
+    return {"hypotheses": hypotheses}
 
 def generate_code(state: AgentState) -> dict:
     hypotheses = state["hypotheses"]
@@ -111,20 +128,21 @@ No markdown, no explanation."""
 
 
 async def execute_hypothesis(state: AgentState) -> dict:
-        hypotheses = state['hypotheses']
-        for hypothesis in hypotheses:
-            if hypothesis['status'] == 'testing':
-                try:
-                    csv_load = f'import pandas as pd\ndf = pd.read_csv(r"{state["dataset_path"]}")\n'
-                    full_code = csv_load + hypothesis["code"]
-                    result = await execute_with_retry(full_code)
-                    hypothesis['result'] = result['stdout'].strip()   
-                    hypothesis['status'] = 'tested'
-                    return {"hypotheses": hypotheses, "execution_result": result}
-                except Exception as e:
-                    hypothesis['result'] = str(e)
-                    hypothesis['status'] = 'error'
-                break
+    hypotheses = state['hypotheses']
+    for hypothesis in hypotheses:
+        if hypothesis['status'] == 'testing':
+            try:
+                csv_load = f'import pandas as pd\ndf = pd.read_csv(r"{state["dataset_path"]}")\n'
+                full_code = csv_load + hypothesis["code"]
+                result = await execute_with_retry(full_code)
+                hypothesis['result'] = result['stdout'].strip()
+                hypothesis['status'] = 'tested'
+                return {"hypotheses": hypotheses, "execution_result": result}
+            except Exception as e:
+                hypothesis['result'] = str(e)
+                hypothesis['status'] = 'error'
+            break
+    return {"hypotheses": hypotheses}
 
 def generate_report(state: AgentState) -> dict:
     hypotheses = state['hypotheses']
