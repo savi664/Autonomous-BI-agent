@@ -99,9 +99,13 @@ No markdown, no explanation."""
                 lines = [l for l in lines if not l.strip().startswith("```")]
                 content = "\n".join(lines)
             
-            code = json.loads(content.strip(),strict=False  )
-            hypothesis["code"] = code["code"]
-            hypothesis["status"] = "testing"
+            try:
+                 code = json.loads(content.strip(), strict=False)
+                 hypothesis["code"] = code["code"]
+                 hypothesis["status"] = "testing"
+            except json.JSONDecodeError:
+                 hypothesis["status"] = "error"
+                 hypothesis["result"] = "Failed to generate valid code"
             break
     return {"hypotheses": hypotheses}
 

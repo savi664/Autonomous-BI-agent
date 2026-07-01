@@ -3,9 +3,17 @@ import io
 import pandas as pd 
 import os
 from agent.graph import create_graph
-
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 graph = create_graph()
 
 @app.post("/analyze/")
