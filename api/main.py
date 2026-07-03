@@ -91,9 +91,8 @@ async def followup(session_id: str, question: str):
         return {"error": "Session not found or expired."}
     else:
         outcome = await answer_follow_up_question(
-            session_id=session_id,
             question=question,
-            dataser_profile=session["dataset_profile"],
+            dataset_profile=session["dataset_profile"],
             dataset_path=session["dataset_path"],
             history=session["history"]
         )

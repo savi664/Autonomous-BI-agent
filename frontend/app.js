@@ -17,6 +17,7 @@
     };
 
     let currentFile = null;
+    let currentSessionId = null; // Store for follow-up questions
     let loadingInterval = null;
     let loadingStartTime = 0;
 
@@ -39,7 +40,10 @@
         reportContainer: document.getElementById('report-container'),
         errorMessage: document.getElementById('error-message'),
         retryBtn: document.getElementById('retry-btn'),
-        newAnalysisBtn: document.getElementById('new-analysis-btn')
+        newAnalysisBtn: document.getElementById('new-analysis-btn'),
+        chatInput: document.getElementById('chat-input'),
+        sendChatBtn: document.getElementById('send-chat-btn'),
+        chatMessages: document.getElementById('chat-messages')
     };
 
     // =====================
@@ -475,6 +479,7 @@
                 throw new Error('The server response was not in the expected format.');
             }
 
+            currentSessionId = data.session_id; // Capture session for follow-ups
             renderReport(data);
             switchState(STATES.REPORT);
 
@@ -593,6 +598,79 @@
         if (!elements.dropZone.contains(e.target)) {
             e.preventDefault();
         }
+    });
+
+    // =====================
+    // Chat Logic
+    // =====================
+    async function sendFollowUp() {
+        const question = elements.chatInput.value.trim();
+        if (!question || !currentSessionId) return;
+
+        // Clear input
+        elements.chatInput.value = '';
+
+        // Add user message
+        appendMessage('user', question);
+
+        // Add thinking indicator
+        const loadingId = appendMessage('assistant', '', true);
+
+        try {
+            const response = await fetch(`/followup/?session_id=${currentSessionId}&question=${encodeURIComponent(question)}`, {
+                method: 'POST'
+            });
+
+            if (!response.ok) throw new Error('Failed to get response');
+
+            const data = await response.json();
+            
+            // Remove loading indicator
+            const loadingEl = document.getElementById(loadingId);
+            if (loadingEl) loadingEl.remove();
+
+            if (data.status === 'tested') {
+                appendMessage('assistant', data.result);
+                // If there's code, we can optionally show it, but for chat we usually keep it text-focused
+                console.log('Follow-up code executed:', data.code);
+            } else {
+                appendMessage('error', data.result || 'Analysis failed for this question.');
+            }
+        } catch (error) {
+            const loadingEl = document.getElementById(loadingId);
+            if (loadingEl) loadingEl.remove();
+            appendMessage('error', 'Connection lost. Please try again.');
+        }
+    }
+
+    function appendMessage(role, text, isLoading = false) {
+        const id = 'msg-' + Date.now();
+        const msgDiv = document.createElement('div');
+        msgDiv.className = `message ${role} ${role === 'error' ? 'error' : ''}`;
+        msgDiv.id = id;
+
+        let content = '';
+        if (isLoading) {
+            content = `<div class="message-content"><div class="typing-dots"><span></span><span></span><span></span></div></div>`;
+        } else {
+            // Basic formatting for results (newlines to <br>)
+            const formattedText = text.replace(/\n/g, '<br>');
+            content = `<div class="message-content"><p>${formattedText}</p></div>`;
+        }
+
+        msgDiv.innerHTML = content;
+        elements.chatMessages.appendChild(msgDiv);
+        
+        // Auto scroll
+        elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
+        
+        return id;
+    }
+
+    // Chat Event Listeners
+    elements.sendChatBtn.addEventListener('click', sendFollowUp);
+    elements.chatInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') sendFollowUp();
     });
 
     // =====================

@@ -212,7 +212,7 @@ def generate_report(state: AgentState) -> dict:
         
     return {"report": response.content.strip()}
 
-async def answer_follow_up_question(state: AgentState, question: str,dataset_profile: dict,dataset_path: str,history) -> dict:
+async def answer_follow_up_question(question: str,dataset_profile: dict,dataset_path: str,history) -> dict:
     history_context = "\n".join([f"Q: {h['question']}\nA: {h['result']}" for h in history[-3:]])
     
     prompt = f"""You are a senior data analyst. The DataFrame is already loaded as 'df' with these columns and types: {dataset_profile['data_types']}
@@ -229,8 +229,6 @@ Print the results clearly.
 Return ONLY a JSON object with one key: "code"
 No markdown, no explanation."""
 
-    response = invoke_with_fallback(prompt)
-        
     response = invoke_with_fallback(prompt)
     content = response.content.strip()
     if "```" in content:

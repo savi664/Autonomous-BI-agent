@@ -147,6 +147,36 @@
                     </button>
                 </div>
                 <div id="report-container" class="report-container"></div>
+
+                <!-- Follow-up Chat Interface -->
+                <div class="chat-section">
+                    <div class="chat-header">
+                        <div class="chat-header-icon">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                        </div>
+                        <div class="chat-header-text">
+                            <h3>Data Assistant</h3>
+                            <p>Ask follow-up questions about this dataset</p>
+                        </div>
+                    </div>
+                    
+                    <div id="chat-messages" class="chat-messages">
+                        <div class="message system">
+                            <div class="message-content">
+                                <p>Analysis complete. I'm ready for follow-up questions. You can ask for specific averages, correlations, or deeper insights.</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-input-area">
+                        <div class="chat-input-wrapper">
+                            <input type="text" id="chat-input" placeholder="Ask a follow-up question..." autocomplete="off">
+                            <button id="send-chat-btn" class="send-chat-btn" title="Send message">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <!-- Error State -->
