@@ -3,7 +3,7 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from agent.state import AgentState
-from agent.nodes import generate_hypotheses, execute_hypothesis, generate_report,profile_dataset, generate_code 
+from agent.nodes import discuss_output, generate_hypotheses, execute_hypothesis, generate_report,profile_dataset, generate_code 
 
 def should_continue(state: AgentState) -> str:
     hypotheses = state["hypotheses"]
@@ -24,11 +24,14 @@ def create_graph():
     })
     graph.add_node("execute_hypothesis", execute_hypothesis)
     graph.add_node("generate_report", generate_report)
+    graph.add_node("discussion", discuss_output)
 
     graph.add_edge(START, "profile_dataset")
     graph.add_edge("profile_dataset", "generate_hypotheses")
     graph.add_edge("generate_hypotheses", "generate_code")
     graph.add_edge("generate_code", "execute_hypothesis")
+    graph.add_edge("execute_hypothesis", "discussion")
+    graph.add_edge("discussion", "generate_report")
     graph.add_edge("generate_report", END)
 
     return graph.compile()

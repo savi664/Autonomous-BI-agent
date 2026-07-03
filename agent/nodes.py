@@ -1,19 +1,26 @@
 import pandas as pd
 from agent.state import AgentState
+from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
+from groq import RateLimitError
 import os 
 import json
 from dotenv import load_dotenv
 from core.retry import execute_with_retry
 
 load_dotenv()   
-os.environ["GITHUB_TOKEN"] = os.getenv("GITHUB_TOKEN")
+os.environ["LLM7_IO_TOKEN"] = os.getenv("LLM7_IO_TOKEN")
 
-llm = ChatOpenAI(
-    model="openai/gpt-5",
-    api_key=os.getenv("GITHUB_TOKEN"),
-    base_url="https://models.github.ai/inference",
-)
+primary_llm = ChatGroq(model="llama-3.3-70b-versatile")
+
+fallback_llm = ChatOpenAI(model_name="gpt-4o",api_key=os.getenv("LLM7_IO_TOKEN"),base_url="https://api.llm7.io/v1")
+
+def invoke_with_fallback(prompt: str):
+    try:
+        return primary_llm.invoke(prompt)
+    except RateLimitError:
+        print("Groq rate limit hit — falling back to LLM7")
+        return fallback_llm.invoke(prompt)
 
 def profile_dataset(state: AgentState) -> dict:
     """
@@ -71,8 +78,8 @@ Return ONLY a JSON array, no explanation, no markdown, no code blocks.
 Each object must have exactly these keys: id, question, status, result, code
 
 Example format:
-[{{"id": "h1", "question": "Is there a correlation between revenue and customers?", "status": "open", "result": "", "code": ""}}]"""
-    response = llm.invoke(prompt)
+[{{"id": "h1", "question": "Is there a correlation between revenue and customers?", "status": "open", "result": "","discussion":"","code": ""}}]"""
+    response = invoke_with_fallback(prompt)
     content = response.content.strip()
 
     if "```" in content:
@@ -108,7 +115,7 @@ Return ONLY a JSON object with one key: "code"
 The value must be a valid Python code string.
 No markdown, no explanation."""
             
-            response = llm.invoke(prompt)
+            response = invoke_with_fallback(prompt)
             content = response.content.strip()
             
             if "```" in content:
@@ -123,7 +130,6 @@ No markdown, no explanation."""
             except json.JSONDecodeError:
                  hypothesis["status"] = "error"
                  hypothesis["result"] = "Failed to generate valid code"
-            break
     return {"hypotheses": hypotheses}
 
 
@@ -135,13 +141,52 @@ async def execute_hypothesis(state: AgentState) -> dict:
                 csv_load = f'import pandas as pd\ndf = pd.read_csv(r"{state["dataset_path"]}")\n'
                 full_code = csv_load + hypothesis["code"]
                 result = await execute_with_retry(full_code)
-                hypothesis['result'] = result['stdout'].strip()
-                hypothesis['status'] = 'tested'
-                return {"hypotheses": hypotheses, "execution_result": result}
+
+                if result.get("status") == "success":
+                    hypothesis['result'] = result['stdout'].strip()
+                    hypothesis['status'] = 'tested'
+                else:
+                    error_msg = result.get("error", "Unknown error")
+                    hypothesis['result'] = f"Error: {error_msg}"
+                    hypothesis['status'] = 'error'
+            
             except Exception as e:
                 hypothesis['result'] = str(e)
                 hypothesis['status'] = 'error'
-            break
+    return {"hypotheses": hypotheses}
+
+def discuss_output(state: AgentState) -> dict:
+    hypotheses = state['hypotheses']
+    tested_hypotheses = [h for h in hypotheses if h['status'] == 'tested']
+    findings = "\n".join([f"Hypothesis {h['id']}: {h['question']}\nResult: {h['result']}" for h in tested_hypotheses])
+
+    prompt = f"""You are a senior data analyst. Given these findings:
+
+    {findings}
+
+    For EACH hypothesis, write a short 2-3 sentence plain-English discussion explaining what the result means for the business — no jargon, no p-value talk, just what it means practically.
+
+    Return ONLY a JSON object mapping hypothesis id to discussion text, like:
+    {{"h1": "Customers who stay longer tend to pay more per month, which suggests...", "h2": "..."}}
+
+    No markdown, no explanation, just the JSON object."""
+
+    response = invoke_with_fallback(prompt)
+    content = response.content.strip()
+
+    if "```" in content:
+        lines = content.split("\n")
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        content = "\n".join(lines)
+
+    try:
+        discussions = json.loads(content.strip(), strict=False)
+    except json.JSONDecodeError:
+        discussions = {}
+
+    for hypothesis in hypotheses:
+        hypothesis["discussion"] = discussions.get(hypothesis["id"], "")
+
     return {"hypotheses": hypotheses}
 
 def generate_report(state: AgentState) -> dict:
@@ -161,6 +206,6 @@ def generate_report(state: AgentState) -> dict:
 
     Return plain text, no JSON, no markdown.
     """
-    response = llm.invoke(prompt)
+    response = invoke_with_fallback(prompt)
         
     return {"report": response.content.strip()}

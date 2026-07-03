@@ -267,57 +267,171 @@
     // Report Renderer
     // =====================
     function renderReport(data) {
-    elements.reportContainer.innerHTML = '';
+        elements.reportContainer.innerHTML = '';
 
-    // Executive summary card at the top
-    const summaryCard = document.createElement('div');
-    summaryCard.className = 'report-card';
-    summaryCard.innerHTML = `
-        <div class="report-card-header">
-            <span class="report-card-number">✦</span>
-            <h3 class="report-card-title">Executive Summary</h3>
-        </div>
-        <div class="report-card-body">
-            ${formatBodyToHtml(data.report)}
-        </div>
-    `;
-    elements.reportContainer.appendChild(summaryCard);
+        // 1. One card per hypothesis FIRST (as requested)
+        if (data.hypotheses && data.hypotheses.length > 0) {
+            data.hypotheses.forEach((h, i) => {
+                const card = document.createElement('div');
+                card.className = 'report-card hypothesis-card';
+                const codeId = `code-block-${i}`;
+                const outputId = `output-block-${i}`;
 
-    // One card per hypothesis
-    data.hypotheses.forEach((h, i) => {
-        const card = document.createElement('div');
-        card.className = 'report-card hypothesis-card';
-        const codeId = 'code-block-' + i;
-        card.innerHTML = `
-            <div class="report-card-header">
-                <span class="report-card-number">${i + 1}</span>
-                <h3 class="report-card-title">${h.question}</h3>
+                card.innerHTML = `
+                    <div class="report-card-header">
+                        <span class="report-card-number">${i + 1}</span>
+                        <h3 class="report-card-title">${h.question}</h3>
+                    </div>
+                    <div class="report-card-body">
+                        <div class="hypothesis-status ${h.status}">
+                            <span class="status-dot"></span>
+                            <span class="status-label">${h.status}</span>
+                        </div>
+                        <div class="hypothesis-discussion">
+                            ${h.discussion ? formatBodyToHtml(h.discussion) : (h.status === 'tested' ? '<p class="status-note">Analysis complete. View execution output for details.</p>' : '<p class="status-note">No discussion available yet.</p>')}
+                        </div>
+                        
+                        <div class="toggle-container">
+                            <button class="view-code-btn" data-target="${codeId}">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></button>
+                                View Code
+                            </button>
+                            <button class="view-output-btn" data-target="${outputId}">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                Show Output
+                            </button>
+                        </div>
+
+                        <pre id="${codeId}" class="code-block hidden"><code>${h.code ? h.code.trim() : '# No code generated'}</code></pre>
+                        <pre id="${outputId}" class="output-block hidden"><code>${h.result ? h.result.trim() : 'No execution output available'}</code></pre>
+                    </div>
+                `;
+                elements.reportContainer.appendChild(card);
+            });
+
+            // Re-attach listeners for the new buttons
+            elements.reportContainer.querySelectorAll('.view-code-btn, .view-output-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const targetId = this.getAttribute('data-target');
+                    const block = document.getElementById(targetId);
+                    
+                    // Toggle this block
+                    const isHidden = block.classList.toggle('hidden');
+                    this.classList.toggle('active', !isHidden);
+                    
+                    // If showing code, hide output (and vice-versa) to keep it clean
+                    const siblingClass = this.classList.contains('view-code-btn') ? '.view-output-btn' : '.view-code-btn';
+                    const siblingBtn = this.parentElement.querySelector(siblingClass);
+                    const siblingTarget = document.getElementById(siblingBtn.getAttribute('data-target'));
+                    
+                    if (!isHidden) {
+                        siblingTarget.classList.add('hidden');
+                        siblingBtn.classList.remove('active');
+                        // Update text
+                        if (this.classList.contains('view-code-btn')) {
+                            this.innerHTML = this.innerHTML.replace('View Code', 'Hide Code');
+                            siblingBtn.innerHTML = siblingBtn.innerHTML.replace('Hide Output', 'Show Output');
+                        } else {
+                            this.innerHTML = this.innerHTML.replace('Show Output', 'Hide Output');
+                            siblingBtn.innerHTML = siblingBtn.innerHTML.replace('Hide Code', 'View Code');
+                        }
+                    } else {
+                        // Restore text when hiding
+                        if (this.classList.contains('view-code-btn')) {
+                            this.innerHTML = this.innerHTML.replace('Hide Code', 'View Code');
+                        } else {
+                            this.innerHTML = this.innerHTML.replace('Hide Output', 'Show Output');
+                        }
+                    }
+                });
+            });
+        }
+
+        // 2. Executive summary / Report sections LAST
+        const reportSection = document.createElement('section');
+        reportSection.className = 'report-section';
+        
+        // Parse the report into the 3 requested segments
+        const segments = splitReportText(data.report);
+        
+        reportSection.innerHTML = `
+            <div class="report-section-header">
+                <div class="report-section-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                </div>
+                <h2 class="report-section-title">Analysis Summary</h2>
             </div>
-            <div class="report-card-body">
-                <div class="hypothesis-status ${h.status}">
-                    <span class="status-dot"></span>
-                    <span class="status-label">${h.status}</span>
-                </div>
-                <div class="hypothesis-result">
-                    <p>${h.result ? h.result.replace(/\n/g, '<br>') : 'No result recorded.'}</p>
-                </div>
-                <pre id="${codeId}" class="code-block hidden"><code>${h.code ? h.code.replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''}</code></pre>
+            
+            <div class="report-sub-card report-sub-card--summary">
+                <h4>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                    Executive Summary
+                </h4>
+                <div class="content">${formatBodyToHtml(segments.summary)}</div>
+            </div>
+            
+            <div class="report-sub-card report-sub-card--findings">
+                <h4>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                    Key Findings
+                </h4>
+                <div class="content">${formatBodyToHtml(segments.findings)}</div>
+            </div>
+            
+            <div class="report-sub-card report-sub-card--actions">
+                <h4>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                    Recommended Next Actions
+                </h4>
+                <div class="content">${formatBodyToHtml(segments.actions)}</div>
             </div>
         `;
-        const btn = document.createElement('button');
-        btn.className = 'view-code-btn';
-        btn.textContent = 'View Code';
-        btn.addEventListener('click', function() {
-            const block = document.getElementById(codeId);
-            block.classList.toggle('hidden');
-            this.textContent = block.classList.contains('hidden') ? 'View Code' : 'Hide Code';
+        
+        elements.reportContainer.appendChild(reportSection);
+    }
+
+    /**
+     * Splits the full report text into 3 parts based on keywords or structure.
+     */
+    function splitReportText(text) {
+        if (!text) return { summary: '', findings: '', actions: '' };
+
+        const result = {
+            summary: '',
+            findings: '',
+            actions: ''
+        };
+
+        // Try to split based on markdown headings or specific patterns
+        const sections = text.split(/(?=#{1,4}\s+|Executive Summary|Key Findings|Recommended Next Actions)/i);
+        
+        let currentSection = 'summary';
+        
+        sections.forEach(s => {
+            const lower = s.toLowerCase();
+            if (lower.includes('key findings')) {
+                currentSection = 'findings';
+            } else if (lower.includes('next actions') || lower.includes('recommendations')) {
+                currentSection = 'actions';
+            } else if (lower.includes('executive summary')) {
+                currentSection = 'summary';
+            }
+            
+            // Append content, stripping the header if it matches exactly
+            const content = s.replace(/#{1,4}\s+(Executive Summary|Key Findings|Recommended Next Actions|Next Actions|Recommendations)/i, '').trim();
+            if (content) {
+                result[currentSection] += (result[currentSection] ? '\n\n' : '') + content;
+            }
         });
-        const cardBody = card.querySelector('.report-card-body');
-        const preBlock = card.querySelector('.code-block');
-        cardBody.insertBefore(btn, preBlock);
-        elements.reportContainer.appendChild(card);
-    });
-}
+
+        // Fallback if splitting didn't work well
+        if (!result.findings && !result.actions) {
+            // If it's one big block, we'll just put it all in summary and provide empty shells
+            result.summary = text;
+        }
+
+        return result;
+    }
 
     // =====================
     // API Call
