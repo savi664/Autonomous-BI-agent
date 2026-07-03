@@ -13,6 +13,7 @@ graph = create_graph()
 
 
 def cleanup_stale_temp_files(max_age_seconds=3600):
+    """ Cleans up temporary CSV files older than the specified max_age_seconds in the system's temporary directory."""
     temp_dir = tempfile.gettempdir()
     now = time.time()
     for path in glob.glob(os.path.join(temp_dir, "tmp*.csv")):
@@ -21,7 +22,18 @@ def cleanup_stale_temp_files(max_age_seconds=3600):
                 os.remove(path)
         except OSError:
             pass
-
+        
+def auto_convert_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Attempts to convert object-dtype columns to numeric if the values
+    are actually numeric but stored as strings
+    """
+    for col in df.select_dtypes(include='object').columns:
+        cleaned = df[col].astype(str).str.replace(r'[$,%\s]', '', regex=True)
+        converted = pd.to_numeric(cleaned, errors='coerce')
+        if converted.notna().mean() > 0.9:
+            df[col] = converted
+    return df
 
 @app.post("/analyze/")
 async def analyze_dataset(file: UploadFile = File(...)):
@@ -35,6 +47,8 @@ async def analyze_dataset(file: UploadFile = File(...)):
             f.write(contents)
 
         df = pd.read_csv(content_filepath)
+        df = auto_convert_numeric_columns(df)
+        df.to_csv(content_filepath, index=False)
 
         initial_state = {
             "dataset": df,

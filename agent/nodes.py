@@ -13,13 +13,13 @@ os.environ["LLM7_IO_TOKEN"] = os.getenv("LLM7_IO_TOKEN")
 
 primary_llm = ChatGroq(model="llama-3.3-70b-versatile")
 
-fallback_llm = ChatOpenAI(model_name="gpt-4o",api_key=os.getenv("LLM7_IO_TOKEN"),base_url="https://api.llm7.io/v1")
+fallback_llm = ChatOpenAI(model_name="devstral-small-2:24b",api_key=os.getenv("LLM7_IO_TOKEN"),base_url="https://api.llm7.io/v1")
 
 def invoke_with_fallback(prompt: str):
     try:
         return primary_llm.invoke(prompt)
     except RateLimitError:
-        print("Groq rate limit hit — falling back to LLM7")
+        print("Primary LLM rate limit exceeded. Falling back to secondary LLM.")
         return fallback_llm.invoke(prompt)
 
 def profile_dataset(state: AgentState) -> dict:
@@ -103,13 +103,15 @@ def generate_code(state: AgentState) -> dict:
 
 Hypothesis: {hypothesis['question']}
 
-The DataFrame is already loaded as 'df' with these exact columns: {state['dataset_profile']['column_names']}
+The DataFrame is already loaded as 'df' with these exact columns: {state['dataset_profile']['column_names'] } and these data types: {state['dataset_profile']['data_types'] }.  
 
 Rules:
 - Only use columns that exist in the list above
 - df is already loaded, do NOT read any files
 - Use only pandas, scipy, numpy
 - Print the results
+- Before running any statistical test (t-test, correlation, ANOVA), check that each group/sample has at least 2 valid (non-null) data points. If not, print a message explaining the test could not run due to insufficient data, and skip the test gracefully instead of raising an error
+- After dropping NaNs, check that each group/sample has at least 2 valid data points. If not, print a message explaining the test could not run due to insufficient data, and skip the test gracefully instead of raising an error
 
 Return ONLY a JSON object with one key: "code"
 The value must be a valid Python code string.
@@ -146,7 +148,7 @@ async def execute_hypothesis(state: AgentState) -> dict:
                     hypothesis['result'] = result['stdout'].strip()
                     hypothesis['status'] = 'tested'
                 else:
-                    error_msg = result.get("error", "Unknown error")
+                    error_msg = result.get("stderr", "Unknown error")
                     hypothesis['result'] = f"Error: {error_msg}"
                     hypothesis['status'] = 'error'
             
