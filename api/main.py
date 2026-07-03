@@ -7,7 +7,8 @@ import glob
 import time
 import tempfile
 from agent.graph import create_graph
-
+from memory.memory_store import create_session, get_session, append_to_session_history
+from agent.nodes import answer_follow_up_question
 app = FastAPI()
 graph = create_graph()
 
@@ -60,13 +61,15 @@ async def analyze_dataset(file: UploadFile = File(...)):
             "discussion": "",
             "execution_result": {}
         }
-
+        
         result = await graph.ainvoke(initial_state)
+        session_id = create_session(df, result["dataset_profile"], content_filepath)
     finally:
         if os.path.exists(content_filepath):
             os.remove(content_filepath)
 
     return {
+        "session_id": session_id,
         "report": result["report"],
         "hypotheses": [
             {
@@ -81,6 +84,21 @@ async def analyze_dataset(file: UploadFile = File(...)):
         ]
     }
 
-
+@app.post("/followup/")
+async def followup(session_id: str, question: str):
+    session = get_session(session_id)
+    if not session:
+        return {"error": "Session not found or expired."}
+    else:
+        outcome = await answer_follow_up_question(
+            session_id=session_id,
+            question=question,
+            dataser_profile=session["dataset_profile"],
+            dataset_path=session["dataset_path"],
+            history=session["history"]
+        )
+        append_to_session_history(session_id, question, outcome.get("result",""))
+        return outcome
+    
 frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
 app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")

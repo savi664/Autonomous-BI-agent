@@ -211,3 +211,46 @@ def generate_report(state: AgentState) -> dict:
     response = invoke_with_fallback(prompt)
         
     return {"report": response.content.strip()}
+
+async def answer_follow_up_question(state: AgentState, question: str,dataset_profile: dict,dataset_path: str,history) -> dict:
+    history_context = "\n".join([f"Q: {h['question']}\nA: {h['result']}" for h in history[-3:]])
+    
+    prompt = f"""You are a senior data analyst. The DataFrame is already loaded as 'df' with these columns and types: {dataset_profile['data_types']}
+
+Previous questions in this session:
+{history_context if history_context else "(none yet)"}
+
+New question: {question}
+
+Generate Python code to answer this question using pandas, scipy, numpy.
+Before running any statistical test, drop rows with missing/NaN values in the relevant columns first, and check that each group has at least 2 valid data points.
+Print the results clearly.
+
+Return ONLY a JSON object with one key: "code"
+No markdown, no explanation."""
+
+    response = invoke_with_fallback(prompt)
+        
+    response = invoke_with_fallback(prompt)
+    content = response.content.strip()
+    if "```" in content:
+        lines = content.split("\n")
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        content = "\n".join(lines)
+
+    try:
+        code_obj = json.loads(content.strip(), strict=False)
+        code = code_obj["code"]
+    except json.JSONDecodeError:
+        return {"status": "error", "result": "Failed to generate valid code for this question."}
+
+    try:
+        csv_load = f'import pandas as pd\ndf = pd.read_csv(r"{dataset_path}")\n'
+        full_code = csv_load + code
+        result = await execute_with_retry(full_code)
+        if result.get("status") == "success":
+            return {"status": "tested", "result": result['stdout'].strip(), "code": code}
+        else:
+            return {"status": "error", "result": f"Error: {result.get('stderr', 'Unknown error')}"}
+    except Exception as e:
+        return {"status": "error", "result": str(e)}
