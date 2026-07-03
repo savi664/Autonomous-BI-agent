@@ -292,7 +292,7 @@
                             <span class="status-label">${h.status}</span>
                         </div>
                         <div class="hypothesis-discussion">
-                            ${h.discussion ? formatBodyToHtml(h.discussion) : (h.status === 'tested' ? '<p class="status-note">Analysis complete. View execution output for details.</p>' : '<p class="status-note">No discussion available yet.</p>')}
+                            ${h.discussion ? formatBodyToHtml(h.discussion) : (h.result ? formatBodyToHtml(h.result) : (h.status === 'tested' ? '<p class="status-note">Analysis complete. View execution output for details.</p>' : '<p class="status-note">No discussion available yet.</p>'))}
                         </div>
                         
                         <div class="toggle-container">

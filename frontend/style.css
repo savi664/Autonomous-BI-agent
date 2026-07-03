@@ -994,10 +994,12 @@ body {
     border: 1px solid rgba(255,255,255,0.1);
     border-radius: var(--radius-lg);
     padding: var(--space-5);
-    overflow-x: auto;
+    overflow: auto; /* Handles both horizontal and vertical overflow */
+    max-height: 400px; /* Prevents the block from expanding too much vertically */
     font-size: 0.85rem;
     color: #d6deeb;
-    white-space: pre;
+    white-space: pre-wrap; /* Allows long lines to wrap */
+    word-break: break-word;
     tab-size: 4;
     margin-top: var(--space-4);
     font-family: 'Consolas', 'Monaco', 'Andale Mono', 'Ubuntu Mono', monospace;
