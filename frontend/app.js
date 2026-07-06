@@ -7,6 +7,127 @@
     'use strict';
 
     // =====================
+    // Particle Background Animation
+    // =====================
+    function initParticleBackground() {
+        const canvas = document.getElementById('bg-canvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        let w, h, mouse = { x: -1000, y: -1000 };
+        let particles = [];
+        let mouseInside = false;
+        const PARTICLE_COUNT = 220;
+
+        function resize() {
+            w = canvas.width = window.innerWidth;
+            h = canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        document.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; mouseInside = true; });
+        document.addEventListener('mouseleave', () => {
+            mouseInside = false;
+            mouse.x = -1000;
+            mouse.y = -1000;
+            for (const p of particles) {
+                if (p.size > 2) {
+                    const angle = Math.atan2(p.y - mouse.y, p.x - mouse.x) + (Math.random() - 0.5) * 0.5;
+                    const speed = 4 + Math.random() * 6;
+                    p.vx += Math.cos(angle) * speed;
+                    p.vy += Math.sin(angle) * speed;
+                }
+            }
+        });
+        document.addEventListener('touchmove', e => {
+            const t = e.touches[0];
+            if (t) { mouse.x = t.clientX; mouse.y = t.clientY; }
+        }, { passive: true });
+        resize();
+
+        class Particle {
+            constructor() {
+                this.reset(true);
+            }
+            reset(init) {
+                this.x = Math.random() * w;
+                this.y = Math.random() * h;
+                this.size = Math.random() * 3 + 1.5;
+                const angle = Math.random() * Math.PI * 2;
+                this.vx = Math.cos(angle) * (0.2 + Math.random() * 0.3);
+                this.vy = Math.sin(angle) * (0.2 + Math.random() * 0.3);
+                this.opacity = Math.random() * 0.6 + 0.2;
+                this.hue = 200 + Math.random() * 60;
+                this.pulse = Math.random() * Math.PI * 2;
+                this.pulseSpeed = 0.01 + Math.random() * 0.02;
+                if (!init) {
+                    this.x = mouse.x + (Math.random() - 0.5) * 200 || this.x;
+                    this.y = mouse.y + (Math.random() - 0.5) * 200 || this.y;
+                }
+            }
+            update() {
+                const dx = mouse.x - this.x;
+                const dy = mouse.y - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < 200) {
+                    const force = (200 - dist) / 200 * 0.02;
+                    this.vx += dx / dist * force;
+                    this.vy += dy / dist * force;
+                }
+                const maxSpeed = 0.8;
+                const spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                if (spd > maxSpeed) { this.vx = this.vx / spd * maxSpeed; this.vy = this.vy / spd * maxSpeed; }
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vx *= 0.98;
+                this.vy *= 0.98;
+                this.pulse += this.pulseSpeed;
+                if (this.x < -50 || this.x > w + 50 || this.y < -50 || this.y > h + 50) this.reset(false);
+            }
+            draw() {
+                const pulseOpacity = this.opacity * (0.7 + 0.3 * Math.sin(this.pulse));
+                const radius = this.size * (1 + 0.3 * Math.sin(this.pulse));
+                const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, radius * 4);
+                gradient.addColorStop(0, `hsla(${this.hue}, 80%, 60%, ${pulseOpacity})`);
+                gradient.addColorStop(0.5, `hsla(${this.hue}, 80%, 50%, ${pulseOpacity * 0.3})`);
+                gradient.addColorStop(1, `hsla(${this.hue}, 80%, 40%, 0)`);
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, radius * 4, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, radius, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${this.hue}, 70%, 70%, ${pulseOpacity})`;
+                ctx.fill();
+            }
+        }
+
+        for (let i = 0; i < PARTICLE_COUNT; i++) particles.push(new Particle());
+
+        function animate() {
+            ctx.clearRect(0, 0, w, h);
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].update();
+                particles[i].draw();
+                for (let j = i + 1; j < particles.length; j++) {
+                    const dx = particles[i].x - particles[j].x;
+                    const dy = particles[i].y - particles[j].y;
+                    const dist = dx * dx + dy * dy;
+                    if (dist < 15000) {
+                        const alpha = (1 - Math.sqrt(dist) / 122) * 0.15;
+                        ctx.beginPath();
+                        ctx.moveTo(particles[i].x, particles[i].y);
+                        ctx.lineTo(particles[j].x, particles[j].y);
+                        ctx.strokeStyle = `hsla(${(particles[i].hue + particles[j].hue) / 2}, 70%, 60%, ${alpha})`;
+                        ctx.lineWidth = 0.6;
+                        ctx.stroke();
+                    }
+                }
+            }
+            requestAnimationFrame(animate);
+        }
+        animate();
+    }
+
+    // =====================
     // State Management
     // =====================
     const STATES = {
@@ -252,7 +373,12 @@
                 html += '</ul>';
             } else {
                 for (const item of group.items) {
-                    html += '<p>' + inlineFormat(item) + '</p>';
+                    const imgMatch = item.match(/^###IMG###(.+?)###IMG###$/);
+                    if (imgMatch) {
+                        html += `<div class="chart-container"><img src="data:image/png;base64,${imgMatch[1]}" alt="Chart" class="chart-image"></div>`;
+                    } else {
+                        html += '<p>' + inlineFormat(item) + '</p>';
+                    }
                 }
             }
         }
@@ -261,10 +387,24 @@
     }
 
     function inlineFormat(text) {
+        const imgMatch = text.match(/^###IMG###(.+?)###IMG###$/);
+        if (imgMatch) {
+            return `<div class="chart-container"><img src="data:image/png;base64,${imgMatch[1]}" alt="Chart" class="chart-image"></div>`;
+        }
         return text
             .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
             .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.+?)\*/g, '<em>$1</em>');
+    }
+
+    function extractChartImages(text) {
+        if (!text) return '';
+        const regex = /###IMG###(.+?)###IMG###/g;
+        let match, html = '';
+        while ((match = regex.exec(text)) !== null) {
+            html += '<div class="chart-container"><img src="data:image/png;base64,' + match[1] + '" alt="Chart" class="chart-image"></div>';
+        }
+        return html;
     }
 
     // =====================
@@ -276,6 +416,21 @@
         // 1. One card per hypothesis FIRST (as requested)
         if (data.hypotheses && data.hypotheses.length > 0) {
             data.hypotheses.forEach((h, i) => {
+                if (h.id === 'error') {
+                    const banner = document.createElement('div');
+                    banner.className = 'validation-error-banner';
+                    banner.innerHTML = `
+                        <div class="validation-error-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                        </div>
+                        <div class="validation-error-text">
+                            <strong>Dataset Validation Failed</strong>
+                            <p>${h.question}</p>
+                        </div>
+                    `;
+                    elements.reportContainer.appendChild(banner);
+                    return;
+                }
                 const card = document.createElement('div');
                 card.className = 'report-card hypothesis-card';
                 const codeId = `code-block-${i}`;
@@ -292,7 +447,8 @@
                             <span class="status-label">${h.status}</span>
                         </div>
                         <div class="hypothesis-discussion">
-                            ${h.discussion ? formatBodyToHtml(h.discussion) : (h.result ? formatBodyToHtml(h.result) : (h.status === 'tested' ? '<p class="status-note">Analysis complete. View execution output for details.</p>' : '<p class="status-note">No discussion available yet.</p>'))}
+                            ${h.discussion ? formatBodyToHtml(h.discussion) : (h.result ? formatBodyToHtml(h.result.replace(/###IMG###.+?###IMG###/g, '')) : (h.status === 'tested' ? '<p class="status-note">Analysis complete. View execution output for details.</p>' : '<p class="status-note">No discussion available yet.</p>'))}
+                            ${h.result && h.result.includes('###IMG###') ? extractChartImages(h.result) : ''}
                         </div>
                         
                         <div class="toggle-container">
@@ -451,7 +607,7 @@
 
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 300000); 
+            const timeoutId = setTimeout(() => controller.abort(), 600000); 
 
             const response = await fetch('/analyze/', {
                 method: 'POST',
@@ -653,9 +809,7 @@
         if (isLoading) {
             content = `<div class="message-content"><div class="typing-dots"><span></span><span></span><span></span></div></div>`;
         } else {
-            // Basic formatting for results (newlines to <br>)
-            const formattedText = text.replace(/\n/g, '<br>');
-            content = `<div class="message-content"><p>${formattedText}</p></div>`;
+            content = `<div class="message-content">${formatBodyToHtml(text)}</div>`;
         }
 
         msgDiv.innerHTML = content;
@@ -677,4 +831,7 @@
     // Initialize
     // =====================
     switchState(STATES.UPLOAD);
+
+    // Initialize background animation
+    initParticleBackground();
 })();

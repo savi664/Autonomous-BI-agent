@@ -1,8 +1,8 @@
+import asyncio
 import pandas as pd
 from agent.state import AgentState
-from langchain_groq import ChatGroq
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
-from groq import RateLimitError
 import re
 import os
 import json
@@ -10,23 +10,29 @@ from dotenv import load_dotenv
 from core.retry import execute_with_retry
 
 load_dotenv()
-os.environ["LLM7_IO_TOKEN"] = os.getenv("LLM7_IO_TOKEN")
 
-primary_llm = ChatGroq(model="llama-3.3-70b-versatile")
+primary_llm = ChatGoogleGenerativeAI(
+    model="gemini-3.1-flash-lite", google_api_key=os.getenv("GOOGLE_API_KEY")
+)
 
 fallback_llm = ChatOpenAI(
-    model_name="devstral-small-2:24b",
+    model="devstral-small-2:24b",
     api_key=os.getenv("LLM7_IO_TOKEN"),
     base_url="https://api.llm7.io/v1",
 )
 
 
-def invoke_with_fallback(prompt: str):
+def invoke_llm(prompt: str):
     try:
-        return primary_llm.invoke(prompt)
-    except RateLimitError:
-        print("Primary LLM rate limit exceeded. Falling back to secondary LLM.")
-        return fallback_llm.invoke(prompt)
+        response = primary_llm.invoke(prompt)
+    except Exception as e:
+        print(f"Primary LLM failed ({e}). Falling back to llm7.")
+        response = fallback_llm.invoke(prompt)
+    if isinstance(response.content, list):
+        response.content = "".join(
+            p.get("text", str(p)) for p in response.content if isinstance(p, dict)
+        )
+    return response
 
 
 def extract_json(text: str):
@@ -46,32 +52,44 @@ def extract_json(text: str):
 
 
 def profile_dataset(state: AgentState) -> dict:
-    """
-    provide the LLM with the profiles of the database
-    """
-    # Load the dataset from the provided code
     try:
         df = state["dataset"]
 
         if not isinstance(df, pd.DataFrame):
             raise ValueError("The variable 'df' must be a pandas DataFrame.")
 
-        # Profile the dataset
         profile = {
-            "dataset_profile": {
-                "num_rows": df.shape[0],
-                "num_columns": df.shape[1],
-                "column_names": df.columns.tolist(),
-                "data_types": df.dtypes.apply(lambda x: x.name).to_dict(),
-                "missing_values": df.isnull().sum().to_dict(),
-                "unique_values": {col: df[col].nunique() for col in df.columns},
-                "summary_statistics": df.describe(include="all").to_dict(),
-                "sample_data": df.head().to_dict(orient="records"),
-                "correlation_matrix": df.select_dtypes(include="number").corr().to_dict(),
-            }
+            "num_rows": df.shape[0],
+            "num_columns": df.shape[1],
+            "column_names": df.columns.tolist(),
+            "data_types": df.dtypes.apply(lambda x: x.name).to_dict(),
+            "missing_values": df.isnull().sum().to_dict(),
+            "unique_values": {col: df[col].nunique() for col in df.columns},
+            "summary_statistics": df.describe(include="all").to_dict(),
+            "sample_data": df.head().to_dict(orient="records"),
+            "correlation_matrix": df.select_dtypes(include="number").corr().to_dict(),
         }
 
-        return profile
+        validation = extract_json(
+            invoke_llm(
+                f"""You are a data validator. Dataset columns: {profile["column_names"]}
+Sample rows: {profile["sample_data"]}
+
+Is this dataset related to BUSINESS metrics (sales, customers, churn, revenue, finance, HR, operations, marketing, etc.)?
+Return ONLY JSON: {{"is_business": true/false, "reason": "explanation if false"}}"""
+            ).content.strip()
+        )
+
+        if not validation.get("is_business", True):
+            return {
+                "dataset_profile": {
+                    "validation_error": validation.get(
+                        "reason", "Not business-related."
+                    )
+                }
+            }
+
+        return {"dataset_profile": profile}
 
     except Exception as e:
         return {"error": str(e)}
@@ -80,25 +98,45 @@ def profile_dataset(state: AgentState) -> dict:
 def generate_hypotheses(state: AgentState) -> dict:
     profile = state["dataset_profile"]
 
+    if "validation_error" in profile:
+        return {
+            "hypotheses": [
+                {
+                    "id": "error",
+                    "question": profile["validation_error"],
+                    "status": "error",
+                    "result": profile["validation_error"],
+                    "code": "",
+                    "type": "text",
+                }
+            ]
+        }
+
     prompt = f"""You are a senior data analyst tasked with investigating a business dataset.
 
 Dataset profile:
 {profile}
 
-Generate exactly 5 hypotheses about the BUSINESS METRICS in this dataset. Focus only on relationships between the actual columns: {profile.get("column_names", [])}.
+Generate 7 hypotheses about the BUSINESS METRICS in this dataset. Focus only on relationships between the actual columns: {profile.get("column_names", [])}.
+
+- Hypotheses h1 through h5 must be text-based statistical tests (NO charts allowed).
+- Hypotheses h6 and h7 must be visualization hypotheses that require a chart (e.g. "What does the distribution of MonthlyCharges look like?", "How does churn vary across contract types?").
 
 Rules:
 - Hypotheses must be about business insights, not about the dataset structure itself
-- Each hypothesis must be testable with pandas and scipy using a DataFrame called 'df' that already exists in memory
+- Each hypothesis must be testable with pandas, scipy, numpy, matplotlib, seaborn using a DataFrame called 'df' that already exists in memory
 - Do NOT import data or read any files — df is already loaded
-- Use only: pandas, scipy, numpy
+- Use only: pandas, scipy, numpy, matplotlib, seaborn
 
 Return ONLY a JSON array, no explanation, no markdown, no code blocks.
-Each object must have exactly these keys: id, question, status, result, code
+Each object must have exactly these keys: id, question, status, result, code, type
+
+- For h1-h5, "type" must be "text"
+- For h6-h7, "type" must be "visualization"
 
 Example format:
-[{{"id": "h1", "question": "Is there a correlation between revenue and customers?", "status": "open", "result": "","discussion":"","code": ""}}]"""
-    response = invoke_with_fallback(prompt)
+[{{"id": "h1", "question": "Is there a correlation between revenue and customers?", "status": "open", "result": "","discussion":"","code": "", "type": "text"}}]"""
+    response = invoke_llm(prompt)
     content = response.content.strip()
 
     try:
@@ -110,22 +148,29 @@ Example format:
     return {"hypotheses": hypotheses}
 
 
-def generate_code(state: AgentState) -> dict:
+async def generate_code(state: AgentState) -> dict:
     hypotheses = state["hypotheses"]
-    for hypothesis in hypotheses:
-        if hypothesis["status"] == "open":
-            prompt = f"""You are a senior data analyst. Generate Python code to test this hypothesis:
+    sem = asyncio.Semaphore(3)
 
-Hypothesis: {hypothesis["question"]}
+    async def process_hypothesis(h):
+        chart_rule = (
+            "Do NOT generate any charts or images. Only print text output (numbers, statistics, conclusions)."
+            if h.get("type") == "text"
+            else 'You MUST generate a chart using matplotlib/seaborn. Save the figure to a BytesIO buffer, encode it as base64, and print it EXACTLY like this: print(f"###IMG###{base64_string}###IMG###"). Also print a brief text explanation BEFORE the image line explaining what the chart shows.'
+        )
+        prompt = f"""You are a senior data analyst. Generate Python code to test this hypothesis:
+
+Hypothesis: {h["question"]}
 
 The DataFrame is already loaded as 'df' with these exact columns: {state["dataset_profile"]["column_names"]} and these data types: {state["dataset_profile"]["data_types"]}.
 
 Rules:
 - Only use columns that exist in the list above
 - df is already loaded, do NOT read any files
-- Use only pandas, scipy, numpy
+- Use only: pandas, scipy, numpy, matplotlib, seaborn
 - Print the results clearly
 - If a column has an 'object' data type but you need it for numeric analysis, ALWAYS use pd.to_numeric(df[column], errors='coerce') before processing.
+- {chart_rule}
 
 CRITICAL — NaN handling:
 Before every statistical test, use this exact pattern:
@@ -140,59 +185,77 @@ Return ONLY a JSON object with one key: "code"
 The value must be a valid Python code string.
 No markdown, no explanation."""
         for i in range(2):
-            response = invoke_with_fallback(prompt)
+            async with sem:
+                response = await asyncio.to_thread(invoke_llm, prompt)
             content = response.content.strip()
             try:
                 code_obj = extract_json(content)
-                hypothesis["code"] = code_obj["code"]
-                hypothesis["status"] = "testing"
-                break
+                h["code"] = code_obj["code"]
+                h["status"] = "testing"
+                return
             except Exception:
                 if i == 0:
                     prompt += "\n\nYour response was not valid JSON. Return ONLY a JSON object with one key: 'code'."
                 else:
-                    hypothesis["status"] = "error"
-                    hypothesis["result"] = "Failed to generate valid code"
+                    h["status"] = "error"
+                    h["result"] = "Failed to generate valid code"
+
+    open_hypotheses = [h for h in hypotheses if h["status"] == "open"]
+    if open_hypotheses:
+        await asyncio.gather(*[process_hypothesis(h) for h in open_hypotheses])
+
     return {"hypotheses": hypotheses}
 
 
 async def execute_hypothesis(state: AgentState) -> dict:
     hypotheses = state["hypotheses"]
-    for hypothesis in hypotheses:
-        if hypothesis["status"] == "testing":
-            try:
-                csv_load = f'import pandas as pd\ndf = pd.read_csv(r"{state["dataset_path"]}")\ndf = df.dropna()\n'
-                
-                for attempt in range(2):
-                    full_code = csv_load + hypothesis["code"]
-                    result = await execute_with_retry(full_code)
+    sem = asyncio.Semaphore(3)
 
-                    if result.get("status") == "success":
-                        hypothesis["result"] = result["stdout"].strip()
-                        hypothesis["status"] = "tested"
-                    elif attempt == 1:
-                        error_msg = result.get("stderr", "Unknown error")
-                        hypothesis["result"] = f"Error: {error_msg}"
-                        hypothesis["status"] = "error"
-                    else:
-                        error_msg = result.get("stderr", "Unknown error")
-                        prompt=f"""This code failed with this error:
+    async def process_hypothesis(h):
+        try:
+            csv_load = f'import pandas as pd\ndf = pd.read_csv(r"{state["dataset_path"]}")\ndf = df.dropna()\n'
+            for attempt in range(2):
+                full_code = csv_load + h["code"]
+                result = await execute_with_retry(full_code)
+                if result.get("status") == "success":
+                    output = result["stdout"].strip()
+                    if h.get("type") == "text":
+                        output = re.sub(
+                            r"###IMG###.+?###IMG###", "", output, flags=re.DOTALL
+                        ).strip()
+                    h["result"] = output
+                    h["status"] = "tested"
+                    return
+                elif attempt == 1:
+                    error_msg = result.get("stderr", "Unknown error")
+                    h["result"] = f"Error: {error_msg}"
+                    h["status"] = "error"
+                else:
+                    error_msg = result.get("stderr", "Unknown error")
+                    prompt = f"""This code failed with this error:
 
-                            {hypothesis['code']}
+                            {h["code"]}
 
                             Error:
                             {error_msg}
 
                             Fix the code. Return ONLY a JSON object with one key: 'code'"""
-                        try:
-                            hypothesis["code"] = extract_json(invoke_with_fallback(prompt).content.strip())["code"]
-                        except Exception:
-                            hypothesis["result"] = f"Error: {error_msg}."
-                            hypothesis["status"] = "error"
-                            break
-            except Exception as e:
-                hypothesis["result"] = str(e)
-                hypothesis["status"] = "error"
+                    try:
+                        async with sem:
+                            llm_response = await asyncio.to_thread(invoke_llm, prompt)
+                        h["code"] = extract_json(llm_response.content.strip())["code"]
+                    except Exception:
+                        h["result"] = f"Error: {error_msg}."
+                        h["status"] = "error"
+                        return
+        except Exception as e:
+            h["result"] = str(e)
+            h["status"] = "error"
+
+    testing_hypotheses = [h for h in hypotheses if h["status"] == "testing"]
+    if testing_hypotheses:
+        await asyncio.gather(*[process_hypothesis(h) for h in testing_hypotheses])
+
     return {"hypotheses": hypotheses}
 
 
@@ -201,7 +264,7 @@ def discuss_output(state: AgentState) -> dict:
     tested_hypotheses = [h for h in hypotheses if h["status"] == "tested"]
     findings = "\n".join(
         [
-            f"Hypothesis {h['id']}: {h['question']}\nResult: {h['result']}"
+            f"Hypothesis {h['id']}: {h['question']}\nResult: {re.sub(r'###IMG###.+?###IMG###', '[CHART IMAGE]', h['result'])}"
             for h in tested_hypotheses
         ]
     )
@@ -217,7 +280,7 @@ def discuss_output(state: AgentState) -> dict:
 
     No markdown, no explanation, just the JSON object."""
 
-    response = invoke_with_fallback(prompt)
+    response = invoke_llm(prompt)
     content = response.content.strip()
 
     try:
@@ -236,7 +299,7 @@ def generate_report(state: AgentState) -> dict:
     tested_hypotheses = [h for h in hypotheses if h["status"] == "tested"]
     findings = "\n".join(
         [
-            f"Hypothesis {h['id']}: {h['question']}\nResult: {h['result']}"
+            f"Hypothesis {h['id']}: {h['question']}\nResult: {re.sub(r'###IMG###.+?###IMG###', '[CHART IMAGE]', h['result'])}"
             for h in tested_hypotheses
         ]
     )
@@ -253,7 +316,7 @@ def generate_report(state: AgentState) -> dict:
 
     Return plain text, no JSON, no markdown.
     """
-    response = invoke_with_fallback(prompt)
+    response = invoke_llm(prompt)
 
     return {"report": response.content.strip()}
 
@@ -262,7 +325,10 @@ async def answer_follow_up_question(
     question: str, dataset_profile: dict, dataset_path: str, history
 ) -> dict:
     history_context = "\n".join(
-        [f"Q: {h['question']}\nA: {h['result']}" for h in history[-3:]]
+        [
+            f"Q: {h['question']}\nA: {re.sub(r'###IMG###.+?###IMG###', '[CHART IMAGE]', h['result'])}"
+            for h in history[-3:]
+        ]
     )
 
     base_prompt = f"""You are a senior data analyst. The DataFrame is already loaded as 'df' with these columns and types: {dataset_profile["data_types"]}
@@ -276,7 +342,11 @@ IMPORTANT: You MUST ALWAYS return valid JSON with a "code" key — no exceptions
 If the question is vague or lacks context, interpret it yourself, scope it down, and write code to investigate something relevant.
 Never refuse or ask for clarification. Never respond with natural language.
 
-Generate Python code using pandas, scipy, numpy.
+Generate Python code using pandas, scipy, numpy, matplotlib, seaborn.
+
+If the question requires a chart/diagram, generate one using matplotlib/seaborn. Save the figure to a BytesIO buffer, encode it as base64, and print it EXACTLY like this: print(f"###IMG###{{base64_string}}###IMG###"). Also print a brief text explanation BEFORE the image line explaining what the chart shows.
+
+If the question cannot be answered with a chart or statistical analysis, print a clear message explaining why.
 
 CRITICAL — NaN handling:
 Before every statistical test, use this exact pattern:
@@ -289,7 +359,9 @@ Print the results clearly.
 Return ONLY a JSON object with one key: "code"
 No markdown, no explanation."""
 
-    csv_load = f'import pandas as pd\ndf = pd.read_csv(r"{dataset_path}")\n'
+    csv_load = (
+        f'import pandas as pd\ndf = pd.read_csv(r"{dataset_path}")\ndf = df.dropna()\n'
+    )
     last_error = ""
 
     for attempt in range(3):
@@ -297,8 +369,14 @@ No markdown, no explanation."""
         if attempt > 0:
             prompt += f"\n\nThe previous attempt failed: {last_error}. Return ONLY valid JSON with a 'code' key."
 
-        response = invoke_with_fallback(prompt)
-        content = response.content.strip()
+        try:
+            response = await asyncio.to_thread(invoke_llm, prompt)
+            content = response.content.strip()
+        except Exception as e:
+            last_error = f"LLM call failed: {e}"
+            if attempt == 2:
+                return {"status": "error", "result": f"LLM call failed: {e}"}
+            continue
 
         try:
             code_obj = extract_json(content)
@@ -317,13 +395,15 @@ No markdown, no explanation."""
             result = await execute_with_retry(full_code)
             if result.get("status") == "success":
                 stdout = result.get("stdout", "").strip()
+                if "###IMG###" in stdout:
+                    return {"status": "tested", "result": stdout, "code": code}
                 summary_prompt = f"""The user asked: "{question}"
 
 The generated code produced this output:
 {stdout}
 
 Summarize the answer in 2-3 clear, conversational sentences. Focus on the key insight. Do not repeat raw numbers unless they are the main finding."""
-                summary = invoke_with_fallback(summary_prompt)
+                summary = await asyncio.to_thread(invoke_llm, summary_prompt)
                 return {
                     "status": "tested",
                     "result": summary.content.strip(),
