@@ -13,7 +13,7 @@ Upload a CSV. Get a full analysis report — automatically generated hypotheses,
 
 ## Demo
 
-![InsightFlow screenshot](screenshots/screenshot.png)
+![InsightFlow screenshot](https://raw.githubusercontent.com/savi664/Autonomous-BI-agent/5256882/screenshots/screenshot.png)
 
 ## Overview
 
