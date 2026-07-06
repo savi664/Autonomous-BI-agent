@@ -1,5 +1,5 @@
 from fastapi import FastAPI, UploadFile, File
-from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 import io
 import pandas as pd
 import os
@@ -11,6 +11,19 @@ from memory.memory_store import create_session, get_session, append_to_session_h
 from agent.nodes import answer_follow_up_question
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://insightflow.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:8000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 graph = create_graph()
 
 
@@ -100,5 +113,4 @@ async def followup(session_id: str, question: str):
         return outcome
 
 
-frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
-app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
+# Frontend is served separately via Vercel

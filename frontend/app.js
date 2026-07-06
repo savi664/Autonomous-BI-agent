@@ -6,6 +6,9 @@
 (function () {
     'use strict';
 
+    // Set this to your HF Spaces URL for production. Leave empty for local dev.
+    const API_BASE_URL = '';
+
     // =====================
     // Particle Background Animation
     // =====================
@@ -609,7 +612,7 @@
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 600000); 
 
-            const response = await fetch('/analyze/', {
+            const response = await fetch(API_BASE_URL + '/analyze/', {
                 method: 'POST',
                 body: formData,
                 signal: controller.signal
@@ -773,7 +776,7 @@
         const loadingId = appendMessage('assistant', '', true);
 
         try {
-            const response = await fetch(`/followup/?session_id=${currentSessionId}&question=${encodeURIComponent(question)}`, {
+            const response = await fetch(API_BASE_URL + `/followup/?session_id=${currentSessionId}&question=${encodeURIComponent(question)}`, {
                 method: 'POST'
             });
 
