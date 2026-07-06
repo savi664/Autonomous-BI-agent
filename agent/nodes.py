@@ -11,34 +11,23 @@ from core.retry import execute_with_retry
 
 load_dotenv()
 
+primary_llm = ChatGoogleGenerativeAI(
+    model="gemini-3.1-flash-lite", google_api_key=os.getenv("GOOGLE_API_KEY")
+)
 
-def _get_llm():
-    primary = ChatGoogleGenerativeAI(
-        model="gemini-3.1-flash-lite", google_api_key=os.getenv("GOOGLE_API_KEY")
-    )
-    token = os.getenv("LLM7_IO_TOKEN")
-    fallback = (
-        ChatOpenAI(
-            model="devstral-small-2:24b",
-            api_key=token,
-            base_url="https://api.llm7.io/v1",
-        )
-        if token
-        else None
-    )
-    return primary, fallback
+fallback_llm = ChatOpenAI(
+    model="devstral-small-2:24b",
+    api_key=os.getenv("LLM7_IO_TOKEN"),
+    base_url="https://api.llm7.io/v1",
+)
 
 
 def invoke_llm(prompt: str):
-    primary, fallback = _get_llm()
     try:
-        response = primary.invoke(prompt)
+        response = primary_llm.invoke(prompt)
     except Exception as e:
         print(f"Primary LLM failed ({e}). Falling back to llm7.")
-        if fallback:
-            response = fallback.invoke(prompt)
-        else:
-            raise
+        response = fallback_llm.invoke(prompt)
     if isinstance(response.content, list):
         response.content = "".join(
             p.get("text", str(p)) for p in response.content if isinstance(p, dict)
