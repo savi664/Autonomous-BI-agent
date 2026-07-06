@@ -4,7 +4,7 @@ Upload a CSV. Get a full analysis report — automatically generated hypotheses,
 
 ## Demo
 
-![InsightFlow screenshot](screenshot.png)
+![InsightFlow screenshot](screenshots/screenshot.png)
 
 ## Overview
 
