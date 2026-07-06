@@ -7,7 +7,7 @@
     'use strict';
 
     // Set this to your HF Spaces URL for production. Leave empty for local dev.
-    const API_BASE_URL = '';
+    const API_BASE_URL = 'https://savinugunarathna-insightflow-ai.hf.space';
 
     // =====================
     // Particle Background Animation
