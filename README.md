@@ -1,12 +1,3 @@
----
-title: Insightflow Ai
-emoji: 🚀
-colorFrom: yellow
-colorTo: gray
-sdk: docker
-pinned: false
----
-
 # InsightFlow — Autonomous BI Agent
 
 Upload a CSV. Get a full analysis report — automatically generated hypotheses, executable Python code, charts, and structured insights. No querying, no dashboard setup, no BI team required.
