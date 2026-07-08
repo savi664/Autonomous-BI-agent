@@ -344,7 +344,7 @@ Never refuse or ask for clarification. Never respond with natural language.
 
 Generate Python code using pandas, scipy, numpy, matplotlib, seaborn.
 
-If the question requires a chart/diagram, generate one using matplotlib/seaborn. Save the figure to a BytesIO buffer, encode it as base64, and print it EXACTLY like this: print(f"###IMG###{{base64_string}}###IMG###"). Also print a brief text explanation BEFORE the image line explaining what the chart shows.
+Only generate a chart if the user explicitly asks for a visualization (e.g. "show me a chart", "plot", "visualize"). Otherwise, use only text/statistical output. If you do generate a chart, print a brief text explanation BEFORE the image line explaining what the chart shows.
 
 If the question cannot be answered with a chart or statistical analysis, print a clear message explaining why.
 
@@ -396,6 +396,21 @@ No markdown, no explanation."""
             if result.get("status") == "success":
                 stdout = result.get("stdout", "").strip()
                 if "###IMG###" in stdout:
+                    text_part = stdout.split("###IMG###")[0].strip()
+                    if text_part:
+                        summary_prompt = f"""The user asked: "{question}"
+
+The generated code produced this text output (before a chart):
+{text_part}
+
+Summarize the answer in 2-3 clear, conversational sentences. Focus on the key insight."""
+                        summary = await asyncio.to_thread(invoke_llm, summary_prompt)
+                        chart_part = stdout[stdout.index("###IMG###") :]
+                        return {
+                            "status": "tested",
+                            "result": summary.content.strip() + "\n\n" + chart_part,
+                            "code": code,
+                        }
                     return {"status": "tested", "result": stdout, "code": code}
                 summary_prompt = f"""The user asked: "{question}"
 
