@@ -167,7 +167,8 @@
         newAnalysisBtn: document.getElementById('new-analysis-btn'),
         chatInput: document.getElementById('chat-input'),
         sendChatBtn: document.getElementById('send-chat-btn'),
-        chatMessages: document.getElementById('chat-messages')
+        chatMessages: document.getElementById('chat-messages'),
+        exportNotebookBtn: document.getElementById('export-notebook-btn')
     };
 
     // =====================
@@ -748,6 +749,13 @@
         clearFile();
         elements.reportContainer.innerHTML = '';
         switchState(STATES.UPLOAD);
+    });
+
+    // Export notebook button
+    elements.exportNotebookBtn.addEventListener('click', () => {
+        if (!currentSessionId) return;
+        const url = API_BASE_URL + '/export/?session_id=' + currentSessionId;
+        window.open(url, '_blank');
     });
 
     // Prevent default drag behavior on document

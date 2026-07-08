@@ -1,14 +1,22 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 import io
 import pandas as pd
 import os
 import glob
 import time
 import tempfile
+import nbformat
 from agent.graph import create_graph
-from memory.memory_store import create_session, get_session, append_to_session_history
+from memory.memory_store import (
+    create_session,
+    get_session,
+    append_to_session_history,
+    update_session,
+)
 from agent.nodes import answer_follow_up_question
+from agent.export_to_notebook import export_to_notebook
 
 app = FastAPI()
 
@@ -76,20 +84,24 @@ async def analyze_dataset(file: UploadFile = File(...)):
     result = await graph.ainvoke(initial_state)
     session_id = create_session(df, result["dataset_profile"], content_filepath)
 
+    hypotheses = [
+        {
+            "id": h["id"],
+            "question": h["question"],
+            "result": h["result"],
+            "discussion": h["discussion"],
+            "code": h["code"],
+            "status": h["status"],
+        }
+        for h in result["hypotheses"]
+    ]
+
+    update_session(session_id, "hypotheses", hypotheses)
+
     return {
         "session_id": session_id,
         "report": result["report"],
-        "hypotheses": [
-            {
-                "id": h["id"],
-                "question": h["question"],
-                "result": h["result"],
-                "discussion": h["discussion"],
-                "code": h["code"],
-                "status": h["status"],
-            }
-            for h in result["hypotheses"]
-        ],
+        "hypotheses": hypotheses,
     }
 
 
@@ -107,6 +119,29 @@ async def followup(session_id: str, question: str):
         )
         append_to_session_history(session_id, question, outcome.get("result", ""))
         return outcome
+
+
+@app.get("/export/")
+async def export_notebook_endpoint(session_id: str):
+    session = get_session(session_id)
+    if not session:
+        return {"error": "Session not found or expired."}
+
+    with open(session["dataset_path"], "r") as f:
+        csv_text = f.read()
+
+    nb = export_to_notebook(
+        hypotheses=session.get("hypotheses", []),
+        csv_text=csv_text,
+    )
+
+    return Response(
+        content=nbformat.writes(nb),
+        media_type="application/x-ipynb+json",
+        headers={
+            "Content-Disposition": "attachment; filename=insightflow_report.ipynb"
+        },
+    )
 
 
 # Frontend is served separately via Vercel
