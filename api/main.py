@@ -132,6 +132,7 @@ async def export_notebook_endpoint(session_id: str):
 
     nb = export_to_notebook(
         hypotheses=session.get("hypotheses", []),
+        history=session.get("history", []),
         csv_text=csv_text,
     )
 
