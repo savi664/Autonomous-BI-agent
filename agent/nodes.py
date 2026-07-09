@@ -156,7 +156,7 @@ async def generate_code(state: AgentState) -> dict:
         chart_rule = (
             "Do NOT generate any charts or images. Only print text output (numbers, statistics, conclusions)."
             if h.get("type") == "text"
-            else 'You MUST generate a chart using matplotlib/seaborn. Save the figure to a BytesIO buffer, encode it as base64, and print it EXACTLY like this: print(f"###IMG###{base64_string}###IMG###"). Also print a brief text explanation BEFORE the image line explaining what the chart shows.'
+            else 'You MUST generate a chart using matplotlib/seaborn. Save the figure to a BytesIO buffer, encode it as base64, and print it EXACTLY like this: print(f"###IMG###{{base64_string}}###IMG###"). Also print a brief text explanation BEFORE the image line explaining what the chart shows.'
         )
         prompt = f"""You are a senior data analyst. Generate Python code to test this hypothesis:
 
@@ -344,7 +344,7 @@ Never refuse or ask for clarification. Never respond with natural language.
 
 Generate Python code using pandas, scipy, numpy, matplotlib, seaborn.
 
-ONLY generate a chart when the user explicitly asks to see, draw, plot, or visualize something (e.g. "draw a diagram", "show me a chart", "plot", "visualize", "graph"). When they do, you MUST generate real matplotlib/seaborn code that produces an actual chart — do NOT just describe what a chart would show. Save the figure to a BytesIO buffer, encode it as base64, and print: print(f"###IMG###{base64_string}###IMG###"). Print a brief text explanation BEFORE the image line. For all other questions, use text/statistical output only — no charts.
+ONLY generate a chart when the user explicitly asks to see, draw, plot, or visualize something (e.g. "draw a diagram", "show me a chart", "plot", "visualize", "graph"). When they do, you MUST generate real matplotlib/seaborn code that produces an actual chart — do NOT just describe what a chart would show. Save the figure to a BytesIO buffer, encode it as base64, and print: print(f"###IMG###{{base64_string}}###IMG###"). Print a brief text explanation BEFORE the image line. For all other questions, use text/statistical output only — no charts.
 
 If the question cannot be answered with a chart or statistical analysis, print a clear message explaining why.
 
