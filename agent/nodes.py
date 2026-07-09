@@ -344,7 +344,7 @@ Never refuse or ask for clarification. Never respond with natural language.
 
 Generate Python code using pandas, scipy, numpy, matplotlib, seaborn.
 
-Only generate a chart if the user explicitly asks for a visualization (e.g. "show me a chart", "plot", "visualize"). Otherwise, use only text/statistical output. If you do generate a chart, print a brief text explanation BEFORE the image line explaining what the chart shows.
+ONLY generate a chart when the user explicitly asks to see, draw, plot, or visualize something (e.g. "draw a diagram", "show me a chart", "plot", "visualize", "graph"). When they do, you MUST generate real matplotlib/seaborn code that produces an actual chart — do NOT just describe what a chart would show. Save the figure to a BytesIO buffer, encode it as base64, and print: print(f"###IMG###{base64_string}###IMG###"). Print a brief text explanation BEFORE the image line. For all other questions, use text/statistical output only — no charts.
 
 If the question cannot be answered with a chart or statistical analysis, print a clear message explaining why.
 
